@@ -1,0 +1,58 @@
+# MAKE THIS FILE UNIFIED CONFIG WHERE YOU CAN MANAGE ALL YOUR EXPERIMENTS.
+
+# experiment settings
+experiment:
+  name: null   # experiment name, if null experiment date used, default null
+  runs: 1   # number of runs, the results will be averaged, default 1
+  pretrain: False   # True -> pretrain the autoencoder, False -> use pretrained weights, default: False
+  epochs_pretrain: 10   # number of pre-training epochs, default 10
+  save_model: False   # save trained model, default False
+  save_embedding: True   # save test set embeddings for later analysis, default False
+
+# dataset
+dataset:
+  name: MNIST # imagenet
+
+# directories
+dir:
+  data: null   # dataset dir, if noname tf datasets used, default noname
+  checkpoint: ../checkpoints
+  logging: ../logs
+  pretrain: ../pretrain
+
+
+# training settings
+training:
+  epochs: 2   #  number of epochs, default 500
+  num_constrains: 6000   # number of constrains, default 6000
+  batch_size: 128   # batch size, default 128
+  alpha: 10000   # weight importance of the constraints (higher alpha, higher confidence), default 10000
+  q: 0   # flip probability of the labels, default 0
+  learning_rate: 0.001   # learning rate, default 0.001
+  decay: 0.00001   # default 0.00001, WHAT DOES THAT MEAN beta_1 or beta_2 ? -> optimizer_decay
+  ml: 0   # 0: random choice, 1: only must-link, -1: only cannot-link, default 0
+  w: 1   # default 1, WHAT DOES THAT MEAN ?
+  decay_rate: 0.9   # learning rate decay rate, default: 0.9 -> lr_decay_rate
+  epochs_lr: 20   # learning rate decay period in terms of epochs, default 20 -> lr_drop_period
+  lrs: True   # use learning rate scheduling, default: True -> use_lr_scheduling
+
+
+  # optimization, DO WE USE THESE ?
+  loss_str: 'l2'
+  regularization: 0.0005
+  dropout: 1
+  learning_rate: 0.0008
+  decay_rate: 0.99
+  momentum: 0.9
+  eval_frequency: 200 # NOT USED?
+  std_shape_generation: [-0, 0]  # minimum/maximum NOT USED?
+
+
+# architecture settings
+model:
+  inp_shape: 784
+  latent_dim: 10
+  num_clusters: 10
+  activation: "sigmoid"
+  type: "FC"
+

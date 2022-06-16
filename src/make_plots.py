@@ -11,15 +11,13 @@ import pandas as pd
 import os
 import numpy as np
 
-# HE_VIEWS = ["LA", "KAKL", "KAPAP", "KAAP", "CV"]
-HE_VIEWS = ["WHITE", "BLACK", "ASIAN", "INDIAN", "OTHER"]
 
 
 def parse_args():
     # Parse arguments
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--name", type=str, help="Name used for charts", required=True)
+    parser.add_argument("--plot_name", type=str, help="Name used for charts", required=True)
     parser.add_argument("--log_dir", type=str, help="FQ path to embedding logs", required=True)
 
     args = parser.parse_args()
@@ -52,8 +50,8 @@ def main():
     pca_obj.fit(standardized_data)
     pca_data = pca_obj.transform(standardized_data)
     labels = load_labels_from_fq_path(args.log_dir)["labels"]
-    label_map = ["Male", "Female"]
-    # label_map = ["White", "Black", "Asian", "Indian"]
+    # automatize this as well
+    label_map = ["0","1","2","3","4","5","6","7","8","9"]
     labels = labels.apply(lambda x: label_map[x])
 
     df = pd.DataFrame(
@@ -61,28 +59,25 @@ def main():
 
     figure = plt.figure(figsize=(8, 10))
     figure.set_rasterized(True)
-    # colours = sns.color_palette("tab10", len(labels.unique()))
-    colours = [sns.color_palette("tab10", 10)[8], sns.color_palette("tab10", 10)[9]]
+    colours = sns.color_palette("tab10", len(labels.unique()))
+    
     ax = sns.scatterplot(x="PC1", y="PC2", hue="Label", data=df, legend="full", alpha=0.3, palette=colours)
-    plt.title(args.name, fontsize=18)
+    plt.title(args.plot_name, fontsize=18)
     plt.xticks([], [])
     plt.yticks([], [])
     ax.set_xlabel("")
     ax.set_ylabel("")
-    # plt.figtext(0.01, 0.01, 'Explained Variance {:.4f}'.format(np.sum(pca_obj.explained_variance_ratio_)))
     ax.set_rasterized(True)
-    plt.savefig(os.path.expanduser(args.log_dir) + "/PCA.eps", rasterized=True)
+    plt.savefig(os.path.expanduser(args.log_dir) + "/PCA.png") # .eps
     plt.close()
 
     # Confusion matrix
     plt.figure(figsize=(8, 8))
     conf_mat = load_results_data(args.log_dir)
     ax = sns.heatmap(conf_mat, cmap="YlGnBu", annot=True, fmt="d")
-    ax.set_xticklabels(HE_VIEWS)
-    ax.set_yticklabels(HE_VIEWS)
     ax.set(xlabel="Predicted Cluster", ylabel="True Cluster")
-    plt.title(args.name + " confusion matrix")
-    plt.savefig(os.path.expanduser(args.log_dir) + "/confusion_matrix.eps")
+    plt.title(args.plot_name + " confusion matrix")
+    plt.savefig(os.path.expanduser(args.log_dir) + "/confusion_matrix.png") # .eps
     plt.close()
 
 

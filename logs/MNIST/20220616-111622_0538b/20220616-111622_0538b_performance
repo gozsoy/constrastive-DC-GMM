@@ -1,0 +1,4 @@
+16-06-2022 11:16  - cfg: {'experiment': {'name': None, 'runs': 1, 'pretrain': False, 'epochs_pretrain': 10, 'save_model': False, 'save_embedding': True}, 'dataset': {'name': 'MNIST'}, 'dir': {'data': None, 'checkpoint': '../checkpoints', 'logging': '../logs', 'pretrain': '../pretrain'}, 'training': {'epochs': 2, 'num_constrains': 6000, 'batch_size': 128, 'alpha': 10000, 'q': 0, 'learning_rate': 0.0008, 'decay': 1e-05, 'ml': 0, 'w': 1, 'decay_rate': 0.99, 'epochs_lr': 20, 'lrs': True, 'loss_str': 'l2', 'regularization': 0.0005, 'dropout': 1, 'momentum': 0.9, 'eval_frequency': 200, 'std_shape_generation': [0, 0]}, 'model': {'inp_shape': 784, 'latent_dim': 10, 'num_clusters': 10, 'activation': 'sigmoid', 'type': 'FC'}}
+16-06-2022 11:16  - num GPUs: 0
+16-06-2022 11:16  - loaded mnist pretrained weights
+16-06-2022 11:16  - pretrain accuracy: 0.7497

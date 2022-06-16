@@ -3,11 +3,7 @@ import tensorflow_probability as tfp
 import numpy as np
 import os
 from ast import literal_eval as make_tuple
-from scipy.sparse import csr_matrix
 
-# pretrain autoencoder
-checkpoint_path = "autoencoder/cp.ckpt"
-checkpoint_dir = os.path.dirname(checkpoint_path)
 
 tfd = tfp.distributions
 tfkl = tf.keras.layers
@@ -24,7 +20,7 @@ class VGGConvBlock(layers.Layer):
         self.conv2 = tfkl.Conv2D(filters=num_filters, kernel_size=(3, 3), activation='relu')
         self.maxpool = tfkl.MaxPooling2D((2, 2))
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs):
         out = self.conv1(inputs)
         out = self.conv2(out)
         out = self.maxpool(out)
@@ -39,7 +35,7 @@ class VGGDeConvBlock(layers.Layer):
         self.convT1 = tfkl.Conv2DTranspose(filters=num_filters, kernel_size=(3, 3), padding='valid', activation='relu')
         self.convT2 = tfkl.Conv2DTranspose(filters=num_filters, kernel_size=(3, 3), padding='valid', activation='relu')
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs):
         out = self.upsample(inputs)
         out = self.convT1(out)
         out = self.convT2(out)
@@ -54,7 +50,7 @@ class VGGEncoder(layers.Layer):
         self.mu = tfkl.Dense(encoded_size, activation=None)
         self.sigma = tfkl.Dense(encoded_size, activation=None)
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs):
         out = inputs
 
         # Iterate through blocks
@@ -86,7 +82,7 @@ class VGGDecoder(layers.Layer):
         self.layers = [VGGDeConvBlock(64, 1), VGGDeConvBlock(32, 2)]
         self.convT = tfkl.Conv2DTranspose(filters=input_tuple[2], kernel_size=3, padding='same')
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs):
         out = self.dense(inputs)
         out = self.reshape(out)
 
@@ -111,7 +107,7 @@ class CNNEncoder(layers.Layer):
         self.mu = tfkl.Dense(encoded_size, activation=None)
         self.sigma = tfkl.Dense(encoded_size, activation=None)
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs):
         out = self.conv1(inputs)
         out = self.conv2(out)
         out_flat = tfkl.Flatten()(out)  # Should be 15x15x64 for heart_echo, 7x7x64 for cifar10
@@ -146,7 +142,7 @@ class CNNDecoder(layers.Layer):
         # self.convT3 = tfkl.Conv2DTranspose(filters=1, kernel_size=3, strides=1, padding='same')
         self.convT3 = tfkl.Conv2DTranspose(filters=input_tuple[2], kernel_size=3, strides=1, padding='same')
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs):
         out = self.dense(inputs)
         out = self.reshape(out)
         out = self.convT1(out)
@@ -186,7 +182,6 @@ class Decoder(layers.Layer):
         self.dense2 = tfkl.Dense(500, activation='relu')
         self.dense3 = tfkl.Dense(500, activation='relu')
         if activation == "sigmoid":
-            print("yeah")
             self.dense4 = tfkl.Dense(self.inp_shape, activation="sigmoid")
         else:
             self.dense4 = tfkl.Dense(self.inp_shape)
@@ -311,4 +306,6 @@ class DCGMM(tf.keras.Model):
         self.add_metric(loss_3, name='loss_3', aggregation="mean")
 
         dec = self.decoder(z_sample)
+
+        # same as {'output_1':dec, 'output_2': z_sample, 'output_3': p_z_c, 'output_4': p_c_z}
         return dec, z_sample, p_z_c, p_c_z

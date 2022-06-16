@@ -216,7 +216,6 @@ class DataGenerator():
                 data = W.data
                 yield (X, (ind1, ind2, data)), {"output_1": X, "output_4": Y}
             for index in range(self.num_constrains// self.batch_size):
-                print('**** I ENTERED THE SECOND GENERATOR IN DATA.PY ****')
                 indexes = self.ind_constr[index * self.batch_size//2:(index + 1) * self.batch_size//2]
                 indexes = np.concatenate([self.ind1[indexes], self.ind2[indexes]])
                 np.random.shuffle(indexes)

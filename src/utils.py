@@ -11,17 +11,13 @@ import cv2
 from PIL import Image
 from matplotlib import cm
 import tensorflow as tf
+from tensorflow.keras.losses import BinaryCrossentropy
 import math
 
 from sklearn.utils.linear_assignment_ import linear_assignment
 import numpy as np
 
 from model import DCGMM
-
-# probably initialize logger here
-#from source.constants import ROOT_LOGGER_STR
-
-#logger = logging.getLogger(ROOT_LOGGER_STR + '.' + __name__)
 
 
 def load_config(args):
@@ -31,8 +27,20 @@ def load_config(args):
     return cfg
 
 
-def get_loss(cfg):
+def get_loss_fn(cfg):
+    # return function of the form loss = fn(y_true, y_pred)
+
+    if cfg['dataset']['name'] == 'MNIST':
+
+        def loss_fn(y_true, x_decoded_mean):
+            loss = cfg['model']['inp_shape'] * BinaryCrossentropy()(y_true, x_decoded_mean)
+            return loss
+        
+        return loss_fn
+    
+    #elif cfg['dataset']['name']== 'fMNIST':
     return
+
 
 def get_data(cfg):
     if cfg['dataset']['name'] == 'MNIST':
@@ -46,24 +54,53 @@ def get_data(cfg):
 
     return x_train, x_test, y_train, y_test
 
-def get_data_generator(cfg, maybe_X_train):
-    return
 
 def get_model(cfg):
     return DCGMM(**cfg['model'])
 
+
 def get_learning_rate_scheduler(cfg):
 
     def learning_rate_scheduler(epoch):
-        initial_lrate = cfg['learning_rate']
-        drop = cfg['decay_rate']
-        epochs_drop = cfg['epochs_lr']
+        initial_lrate = cfg['training']['learning_rate']
+        drop = cfg['training']['decay_rate']
+        epochs_drop = cfg['training']['epochs_lr']
         lrate = initial_lrate * math.pow(drop,
                                             math.floor((1 + epoch) / epochs_drop))
         return lrate
     
     return learning_rate_scheduler
 
+
+def accuracy_metric(inp, p_c_z):
+    y = inp
+    y_pred = tf.math.argmax(p_c_z, axis=-1)
+    return tf.numpy_function(cluster_acc, [y, y_pred], tf.float64)
+
+
+def get_alpha(cfg):
+    q = cfg['training']['q']
+    if q > 0:
+        alpha = 1000 * np.log((1 - q) / q)
+    else:
+        alpha = cfg['training']['alpha']
+    return alpha
+
+
+def get_logger(experiment_path, ex_name):
+
+    performance_logger = logging.getLogger(ex_name + '_perf_logger')
+    performance_logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s  - %(message)s','%d-%m-%Y %H:%M')
+    perf_file_handler = logging.FileHandler(os.path.join(experiment_path, ex_name + '_performance'))
+    perf_file_handler.setLevel(logging.INFO)
+    perf_file_handler.setFormatter(formatter)
+    performance_logger.addHandler(perf_file_handler)
+
+    return performance_logger
+
+
+'''# below is not used anywhere
 def setup_logger(results_path, create_stdlog):
     """Setup a general logger which saves all logs in the experiment folder"""
 
@@ -81,7 +118,7 @@ def setup_logger(results_path, create_stdlog):
     if create_stdlog:
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.INFO)
-        root_logger.addHandler(handler)
+        root_logger.addHandler(handler)'''
 
 
 def cluster_acc(y_true, y_pred):

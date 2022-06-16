@@ -1,4 +1,4 @@
-name: myenv
+name: semester_project_env
 channels:
   - anaconda
   - defaults
@@ -150,20 +150,19 @@ dependencies:
   - zipp=3.4.0=pyhd3eb1b0_0
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.4.5=h9ceee32_0
+  - pip==20.2.4
   - pip:
     - classification-models==0.1
     - cloudpickle==1.4.1
     - ffmpeg-python==0.2.0
     - future==0.18.2
-    - heart-echo==1.1.1
     - image-classifiers==1.0.0
     - joblib==0.15.1
     - keras-applications==1.0.8
-    - minisom==2.2.7
+    - minisom==2.3.0
     - opencv-python==4.4.0.42
     - panda==0.3.1
     - pandas==1.1.2
-    - pip==20.2.4
     - pytz==2020.1
     - pyyaml==5.3.1
     - scikit-learn==0.22.2
@@ -172,5 +171,3 @@ dependencies:
     - threadpoolctl==2.1.0
     - torch==1.6.0
     - tqdm==4.48.2
-    - utkface==0.1
-prefix: /cluster/home/lauraman/software/anaconda/envs/myenv

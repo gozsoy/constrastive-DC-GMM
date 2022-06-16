@@ -22,45 +22,15 @@ import utils
 from dataset import DataGenerator
 from projector_plugin import ProjectorPlugin
 
-#convert all print's to log
-
-# PUT THESE UNDER CONFIG.YML
-# project-wide constants:
-ROOT_LOGGER_STR = "DCGMM"
-LOGGER_RESULT_FILE = "logs.txt"
-CHECKPOINT_PATH = 'models'  # "autoencoder/cp.ckpt"
-
-#CREATE THIS WITHIN MAIN no printing anymore
-logger = logging.getLogger(ROOT_LOGGER_STR + '.' + __name__)
 
 
-    
-# PUT UNDER UTILS.PY
-def loss_DCGMM_mnist(inp, x_decoded_mean):
-    x = inp
-    loss = 784 * tf.keras.losses.BinaryCrossentropy()(x, x_decoded_mean)
-    return loss
+def pretrain(cfg, model, performance_logger):
+    inp_shape = cfg['model']['inp_shape']
 
-# PUT UNDER UTILS.PY
-def accuracy_metric(inp, p_c_z):
-    y = inp
-    y_pred = tf.math.argmax(p_c_z, axis=-1)
-    return tf.numpy_function(utils.cluster_acc, [y, y_pred], tf.float64)
+    # Get the AE from DCGMM
+    input = tfkl.Input(shape=inp_shape)
 
-
-# GET PRETRAIN MODEL FROM UTILS.PY
-def pretrain(model, args, ex_name, configs):
-    input_shape = configs['training']['inp_shape']
-    num_clusters = configs['training']['num_clusters']
-
-    if configs['data']['data_name'] in ["heart_echo", "cifar10", "utkface"]:
-        if configs['training']['type'] in ["CNN", "VGG"]:
-            input_shape = make_tuple(input_shape)
-
-    # Get the AE from the model
-    input = tfkl.Input(shape=input_shape)
-
-    if configs['training']['type'] == "FC":
+    if cfg['model']['type'] == "FC":
         f = tfkl.Flatten()(input)
         e1 = model.encoder.dense1(f)
         e2 = model.encoder.dense2(e1)
@@ -70,7 +40,7 @@ def pretrain(model, args, ex_name, configs):
         d2 = model.decoder.dense2(d1)
         d3 = model.decoder.dense3(d2)
         dec = model.decoder.dense4(d3)
-    elif configs['training']['type'] == "CNN":
+    elif cfg['model']['type'] == "CNN":
         e1 = model.encoder.conv1(input)
         e2 = model.encoder.conv2(e1)
         f = tfkl.Flatten()(e2)
@@ -81,7 +51,7 @@ def pretrain(model, args, ex_name, configs):
         d4 = model.decoder.convT2(d3)
         d5 = model.decoder.convT3(d4)
         dec = tf.sigmoid(d5)
-    elif configs['training']['type'] == "VGG":
+    elif cfg['model']['type'] == "VGG":
         enc = input
         for block in model.encoder.layers:
             enc = block(enc)
@@ -97,46 +67,53 @@ def pretrain(model, args, ex_name, configs):
 
     autoencoder = tfk.Model(inputs=input, outputs=dec)
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)  # , decay=args.decay)
-    if args.data == 'MNIST' or args.data == 'fMNIST' or args.data == 'heart_echo' or args.data == 'utkface':
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    if cfg['dataset']['name'] == 'MNIST':
         autoencoder.compile(optimizer=optimizer, loss="binary_crossentropy")
     else:
         autoencoder.compile(optimizer=optimizer, loss="mse")
-    autoencoder.summary()
-    x_train, x_test, y_train, y_test = utils.get_data(args, configs)
+    
+    x_train, x_test, y_train, y_test = utils.get_data(cfg)
+
     X = np.concatenate((x_train, x_test))
     Y = np.concatenate((y_train, y_test))
 
+
+    pretrain_path = os.path.join(cfg['dir']['pretrain'],cfg['dataset']['name'],'autoencoder','cp.ckpt')
+    gmm_save_path = os.path.join(cfg['dir']['pretrain'],cfg['dataset']['name'],'gmm_save.sav')
+
     # If the model should be run from scratch:
-    if args.pretrain:
-        #print('\n******************** Pretraining **************************')
-        cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath="pretrain/autoencoder_tmp/" + ex_name + "/cp.ckpt",
+    if cfg['experiment']['pretrain']:
+        performance_logger.info('started pretraining')
+        print('started pretraining')
+
+        cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=pretrain_path,
                                                          save_weights_only=True, verbose=1)
-        autoencoder.fit(X, X, epochs=args.epochs_pretrain, batch_size=32, callbacks=cp_callback)
+        autoencoder.fit(X, X, epochs=cfg['experiment']['epochs_pretrain'], batch_size=32, callbacks=cp_callback)
 
         encoder = model.encoder
-        input = tfkl.Input(shape=input_shape)
+        input = tfkl.Input(shape=inp_shape)
         z, _ = encoder(input)
         z_model = tf.keras.models.Model(inputs=input, outputs=z)
         z = z_model.predict(X)
 
-        estimator = GaussianMixture(n_components=num_clusters, covariance_type='diag', n_init=3)
+        estimator = GaussianMixture(n_components=cfg['training']['num_clusters'], covariance_type='diag', n_init=3)
         estimator.fit(z)
-        pickle.dump(estimator, open("pretrain/gmm_tmp/" + ex_name + "_gmm_save.sav", 'wb'))
+        pickle.dump(estimator, open(gmm_save_path, 'wb'))
 
-        #print('\n******************** Pretraining Done**************************')
+        performance_logger.info('finished pretraining')
+        print('finished pretraining')
+
     else:
-        if args.data == 'MNIST':
-            autoencoder.load_weights("pretrain/MNIST/autoencoder/cp.ckpt")
-            estimator = pickle.load(open("pretrain/MNIST/gmm_save.sav", 'rb'))
-            #print('\n******************** Loaded MNIST Pretrain Weights **************************')
-        else:
-            print('\nPretrained weights for {} not available, please rerun with \'--pretrain True option\''.format(
-                args.data))
-            exit(1)
+        autoencoder.load_weights(pretrain_path)
+        estimator = pickle.load(open(gmm_save_path, 'rb'))
+
+        performance_logger.info('loaded mnist pretrained weights')
+        print('loaded mnist pretrained weights')
+
     
     encoder = model.encoder
-    input = tfkl.Input(shape=input_shape)
+    input = tfkl.Input(shape=inp_shape)
     z, _ = encoder(input)
     z_model = tf.keras.models.Model(inputs=input, outputs=z)
 
@@ -147,14 +124,15 @@ def pretrain(model, args, ex_name, configs):
     model.log_c_sigma.assign(np.log(sigma_samples))
 
     yy = estimator.predict(z_model.predict(X))
-    acc = utils.cluster_acc(yy, Y)
-    pretrain_acc = acc
-    print('\nPretrain accuracy: ' + str(acc))
+    pretrain_acc = utils.cluster_acc(yy, Y)
 
-    return model, pretrain_acc
+    performance_logger.info(f'pretrain accuracy: {pretrain_acc}')
+    print(f'pretrain accuracy: {pretrain_acc}')
+
+    return model
 
 
-def run_experiment(cfg):#args, configs, loss):
+def run_experiment(cfg):
     
     if cfg['experiment']['name'] is None:
         timestr = time.strftime("%Y%m%d-%H%M%S")
@@ -162,78 +140,70 @@ def run_experiment(cfg):#args, configs, loss):
     else:
         ex_name = cfg['experiment']['name']
 
-    experiment_path = Path(os.path.join(cfg['dir']['logging'], cfg['dataset']['name'], ex_name))
-    experiment_path.mkdir(parents=True)
+    experiment_path = os.path.join(cfg['dir']['logging'], cfg['dataset']['name'], ex_name)
+    Path(experiment_path).mkdir(parents=True)
     
-    
+    performance_logger = utils.get_logger(experiment_path, ex_name)
+
+    performance_logger.info(f'cfg: {cfg}')
+    performance_logger.info(f'num GPUs: {len(tf.config.list_physical_devices("GPU"))}')
+
+    alpha = utils.get_alpha(cfg)
+
     x_train, x_test, y_train, y_test = utils.get_data(cfg)
 
-    acc_tot, nmi_tot, ari_tot = [], [], []
+    generator = DataGenerator(x_train, y_train, num_constrains=cfg['training']['num_constrains'], alpha=alpha, q=cfg['training']['q'],
+                        batch_size=cfg['training']['batch_size'], ml=cfg['training']['ml'])
+    train_generator = generator.gen()
+    test_generator = DataGenerator(x_test, y_test, batch_size=cfg['training']['batch_size']).gen()
 
     model = utils.get_model(cfg)
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=cfg['learning_rate'], decay=cfg['decay'])
+    optimizer = tf.keras.optimizers.Adam(learning_rate=cfg['training']['learning_rate'], decay=cfg['training']['decay'])
 
-    # get from utils
-    # load all callbacks from utils.
-    def learning_rate_scheduler(epoch):
-        initial_lrate = args.lr
-        drop = args.decay_rate
-        epochs_drop = args.epochs_lr
-        lrate = initial_lrate * math.pow(drop,
-                                            math.floor((1 + epoch) / epochs_drop))
-        return lrate
 
-    if cfg['lrs']:
-        cp_callback = [tf.keras.callbacks.TensorBoard(log_dir='logs/' + ex_name),
-                        tf.keras.callbacks.LearningRateScheduler(learning_rate_scheduler)]
-        optimizer = tf.keras.optimizers.Adam(learning_rate=args.lr)
+    # needs to be changed
+    if cfg['training']['lrs']:
+        cp_callback = [tf.keras.callbacks.TensorBoard(log_dir=experiment_path),
+                        tf.keras.callbacks.LearningRateScheduler(utils.get_learning_rate_scheduler(cfg))]
+        optimizer = tf.keras.optimizers.Adam(learning_rate=cfg['training']['learning_rate'])
 
-    elif cfg['save_model']:
-        checkpoint_path = CHECKPOINT_PATH + '/' + configs['data']['data_name'] + '/' + ex_name
-        cp_callback = [tf.keras.callbacks.TensorBoard(log_dir='logs/' + ex_name),
+    elif cfg['experiment']['save_model']:
+        checkpoint_path = os.path.join(cfg['dir']['checkpoint'], cfg['dataset']['name'], ex_name)
+        Path(checkpoint_path).mkdir(parents=True)
+
+        cp_callback = [tf.keras.callbacks.TensorBoard(log_dir=experiment_path),
                         tf.keras.callbacks.ModelCheckpoint(
                             filepath=checkpoint_path,
                             verbose=1,
                             save_weights_only=True,
                             period=100)]
     else:
-        cp_callback = [tf.keras.callbacks.TensorBoard(log_dir='logs/' + ex_name)]
+        cp_callback = [tf.keras.callbacks.TensorBoard(log_dir=experiment_path)]
 
-    model.compile(optimizer, loss={"output_1": loss}, metrics={"output_4": accuracy_metric})
-
-    # pretrain model
-    model, pretrain_acc = pretrain(model, args, ex_name, configs)
-
-    # get alpha from utils.py
-    if args.q > 0:
-        alpha = 1000 * np.log((1 - args.q) / args.q)
-    else:
-        alpha = args.alpha
-
-    # create data generators LOAD FROM UTILS.PY
-    # utils.get_data_generator():
-    gen = DataGenerator(x_train, y_train, num_constrains=args.num_constrains, alpha=alpha, q=args.q,
-                        batch_size=args.batch_size, ml=args.ml)
-    test_gen = DataGenerator(x_test, y_test, batch_size=args.batch_size).gen()
-
-    train_gen = gen.gen()
     
-    # fit model
-    model.fit(train_gen, validation_data=test_gen, steps_per_epoch=int(len(y_train)/args.batch_size), validation_steps=len(y_test)//args.batch_size, epochs=args.num_epochs, callbacks=cp_callback)
+    # pretrain model
+    model = pretrain(cfg, model, performance_logger)
 
-    # results
+    # train model
+    model.compile(optimizer, loss={"output_1": utils.get_loss_fn(cfg)}, metrics={"output_4": utils.accuracy_metric})
+
+    model.fit(train_generator, validation_data=test_generator, steps_per_epoch=int(len(y_train)/cfg['training']['batch_size']), 
+              validation_steps=len(y_test)//cfg['training']['batch_size'], epochs=cfg['training']['epochs'], callbacks=cp_callback)
+
+
+    # measure training performance
     rec, z_sample, p_z_c, p_c_z = model.predict([x_train, np.zeros(len(x_train))])
     yy = np.argmax(p_c_z, axis=-1)
     acc = utils.cluster_acc(y_train, yy)
     nmi = normalized_mutual_info_score(y_train, yy)
     ari = adjusted_rand_score(y_train, yy)
-    ml_ind1 = gen.ml_ind1
-    ml_ind2 = gen.ml_ind2
-    cl_ind1 = gen.cl_ind1
-    cl_ind2 = gen.cl_ind2
+    ml_ind1 = generator.ml_ind1
+    ml_ind2 = generator.ml_ind2
+    cl_ind1 = generator.cl_ind1
+    cl_ind2 = generator.cl_ind2
     count = 0
-    if args.num_constrains == 0:
+    if cfg['training']['num_constrains'] == 0:
         sc = 0
     else:
         maxx = len(ml_ind1) + len(cl_ind1)
@@ -245,68 +215,33 @@ def run_experiment(cfg):#args, configs, loss):
                 count += 1
         sc = count / maxx
 
-    # no need to this. just log within the experiment file!!
-    if args.data == 'MNIST':
-        f = open("results_MNIST.txt", "a+")
-    elif args.data == 'fMNIST':
-        f = open("results_fMNIST.txt", "a+")
-    elif args.data == 'Reuters':
-        f = open("results_reuters.txt", "a+")
-    elif args.data == 'heart_echo':
-        f = open("results_heart_echo.txt", "a+")
-        f.write("%s, %s. " % (configs['data']['label'], configs['training']['type']))
-    elif args.data == 'stl10':
-        f = open("results_stl.txt", "a+")
-    elif args.data == 'utkface':
-        f = open("results_utkface.txt", "a+")
-        f.write("%s. " % (configs['data']['label']))
-    f.write("Epochs= %d, num_constrains= %d, ml= %d, alpha= %d, batch_size= %d, learning_rate= %f, q= %f, "
-            "pretrain_e= %d, gen_old=  %d, "
-            % (args.num_epochs, args.num_constrains, args.ml, alpha, args.batch_size, args.lr, args.q,
-                args.epochs_pretrain, args.gen_old))
+    performance_logger.info("Train Accuracy: %f, NMI: %f, ARI: %f, sc: %f." % (acc, nmi, ari, sc))
 
-    if args.lrs == True:
-        f.write("decay_rate= %f, epochs_lr= %d, name= %s. " % (args.decay_rate, args.epochs_lr, ex_name))
-    else:
-        f.write("decay= %f, name= %s. " % (args.decay, ex_name))
 
-    f.write("Pretrain accuracy: %f , " % (pretrain_acc))
-    f.write("Accuracy train: %f, NMI: %f, ARI: %f, sc: %f.\n" % (acc, nmi, ari, sc))
-
+    # measure test performance
     rec, z_sample, p_z_c, p_c_z = model.predict([x_test, np.zeros(len(x_test))])
     yy = np.argmax(p_c_z, axis=-1)
     acc = utils.cluster_acc(y_test, yy)
     nmi = normalized_mutual_info_score(y_test, yy)
     ari = adjusted_rand_score(y_test, yy)
 
-    acc_tot.append(acc)
-    nmi_tot.append(nmi)
-    ari_tot.append(ari)
+    performance_logger.info("Test Accuracy: %f, NMI: %f, ARI: %f.\n" % (acc, nmi, ari))
 
-    f.write("Accuracy test: %f, NMI: %f, ARI: %f.\n" % (acc, nmi, ari))
-    f.close()
-    print(str(acc))
-    print(str(nmi))
-    print(str(ari))
+    # save test set confusion matrix
+    conf_mat = utils.make_confusion_matrix(y_test, yy, cfg['model']['num_clusters'])
+    np.save(os.path.join(experiment_path,'conf_mat.npy'), conf_mat)
 
-    # Save confusion matrix
-    conf_mat = utils.make_confusion_matrix(y_test, yy, configs['training']['num_clusters'])
-    np.save("logs/" + ex_name + "/conf_mat.npy", conf_mat)
-
-    # Save embeddings
-    if args.save_embedding:
-        proj = ProjectorPlugin("logs/" + ex_name, z_sample)
-
+    # save test set embeddings
+    if cfg['experiment']['save_embedding']:
+        proj = ProjectorPlugin(experiment_path, z_sample)
 
         proj.save_labels(y_test)
 
         # Add images to projector
-
-        if args.data == 'MNIST':
+        if cfg['dataset']['name'] == 'MNIST':
             proj.save_image_sprites(x_test, 28, 28, 1, True)
 
         proj.finalize()
-
 
 
 
