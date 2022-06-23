@@ -68,7 +68,8 @@ class VGGDecoder(layers.Layer):
     def __init__(self, input_shape, activation):
         super(VGGDecoder, self).__init__(name='VGGDecoder')
 
-        input_tuple = make_tuple(input_shape)
+        #input_tuple = make_tuple(input_shape)
+        input_tuple=input_shape
         if input_tuple == (64, 64, 1):
             target_shape = (13, 13, 64)
         elif input_tuple == (64, 64, 3):
@@ -177,7 +178,8 @@ class Encoder(layers.Layer):
 class Decoder(layers.Layer):
     def __init__(self, input_shape, activation):
         super(Decoder, self).__init__(name='dec')
-        self.inp_shape = input_shape
+        # convert from tuple to int
+        self.inp_shape = input_shape[0]
         self.dense1 = tfkl.Dense(2000, activation='relu')
         self.dense2 = tfkl.Dense(500, activation='relu')
         self.dense3 = tfkl.Dense(500, activation='relu')
@@ -195,13 +197,13 @@ class Decoder(layers.Layer):
 
 
 class DCGMM(tf.keras.Model):
-    def __init__(self, **kwargs):
+    def __init__(self, cfg, inp_shape):
         super(DCGMM, self).__init__(name="DCGMM")
-        self.encoded_size = kwargs['latent_dim']
-        self.num_clusters = kwargs['num_clusters']
-        self.inp_shape = kwargs['inp_shape']
-        self.activation = kwargs['activation']
-        self.type = kwargs['type']
+        self.encoded_size = cfg['latent_dim']
+        self.num_clusters = cfg['num_clusters']
+        self.inp_shape = inp_shape
+        self.activation = cfg['activation']
+        self.type = cfg['type']
 
         if self.type == "FC":
             self.encoder = Encoder(self.encoded_size)

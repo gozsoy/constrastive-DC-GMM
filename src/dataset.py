@@ -209,7 +209,7 @@ class DataGenerator():
             np.random.shuffle(self.ind_constr)
             for index in range(int(len(self.X)/ self.batch_size)):
                 indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
-                X = self.X[indexes]
+                X = tf.gather(self.X,indexes)
                 Y = self.Y[indexes]
                 W = self.W[indexes][:, indexes]* self.alpha
                 ind1, ind2 = csr_matrix_indices(W)
@@ -219,7 +219,7 @@ class DataGenerator():
                 indexes = self.ind_constr[index * self.batch_size//2:(index + 1) * self.batch_size//2]
                 indexes = np.concatenate([self.ind1[indexes], self.ind2[indexes]])
                 np.random.shuffle(indexes)
-                X = self.X[indexes]
+                X = tf.gather(self.X,indexes)
                 Y = self.Y[indexes]
                 W = self.W[indexes][:, indexes]* self.alpha
                 ind1, ind2 = csr_matrix_indices(W)

@@ -1,17 +1,15 @@
-# MAKE THIS FILE UNIFIED CONFIG WHERE YOU CAN MANAGE ALL YOUR EXPERIMENTS.
-
 # experiment settings
 experiment:
   name: null   # experiment name, if null experiment date used, default null
   runs: 1   # number of runs, the results will be averaged, default 1
   pretrain: False   # True -> pretrain the autoencoder, False -> use pretrained weights, default: False
-  epochs_pretrain: 10   # number of pre-training epochs, default 10
+  epochs_pretrain: 1   # number of pre-training epochs, default 10
   save_model: False   # save trained model, default False
   save_embedding: True   # save test set embeddings for later analysis, default False
 
 # dataset
 dataset:
-  name: MNIST # imagenet
+  name: CIFAR10   # CIFAR10, MNIST
 
 # directories
 dir:
@@ -23,13 +21,14 @@ dir:
 
 # training settings
 training:
-  epochs: 2   #  number of epochs, default 500
+  epochs: 1   #  number of epochs, default 500
   num_constrains: 6000   # number of constrains, default 6000
   batch_size: 128   # batch size, default 128
   alpha: 10000   # weight importance of the constraints (higher alpha, higher confidence), default 10000
   q: 0   # flip probability of the labels, default 0
   learning_rate: 0.001   # learning rate, default 0.001
-  decay: 0.00001   # default 0.00001, WHAT DOES THAT MEAN beta_1 or beta_2 ? -> optimizer_decay
+  beta_1: 0.9   # beta_1 argument of Adam optimizer, default 0.9
+  beta_2: 0.999   # beta_2 argument of Adam optimizer, default 0.999
   ml: 0   # 0: random choice, 1: only must-link, -1: only cannot-link, default 0
   w: 1   # default 1, WHAT DOES THAT MEAN ?
   decay_rate: 0.9   # learning rate decay rate, default: 0.9 -> lr_decay_rate
@@ -50,9 +49,8 @@ training:
 
 # architecture settings
 model:
-  inp_shape: 784
   latent_dim: 10
-  num_clusters: 10
-  activation: "sigmoid"
-  type: "FC"
+  num_clusters: 10   # total number of labels
+  activation: null   # null, "sigmoid"
+  type: "VGG"   # 'FC', 'VGG'
 

@@ -11,7 +11,8 @@ import cv2
 from PIL import Image
 from matplotlib import cm
 import tensorflow as tf
-from tensorflow.keras.losses import BinaryCrossentropy
+from tensorflow.keras.losses import BinaryCrossentropy, MeanSquaredError
+from tensorflow.keras.layers import Normalization
 import math
 
 from sklearn.utils.linear_assignment_ import linear_assignment
@@ -27,19 +28,32 @@ def load_config(args):
     return cfg
 
 
-def get_loss_fn(cfg):
+def get_loss_fn(cfg, inp_shape):
     # return function of the form loss = fn(y_true, y_pred)
 
     if cfg['dataset']['name'] == 'MNIST':
+        
+        pixel_count = tf.cast(inp_shape[0], dtype=tf.float32)
 
         def loss_fn(y_true, x_decoded_mean):
-            loss = cfg['model']['inp_shape'] * BinaryCrossentropy()(y_true, x_decoded_mean)
+            loss = pixel_count * BinaryCrossentropy()(y_true, x_decoded_mean)
             return loss
         
         return loss_fn
     
-    #elif cfg['dataset']['name']== 'fMNIST':
-    return
+    elif cfg['dataset']['name']== 'CIFAR10':
+
+        pixel_count = tf.cast(tf.reduce_prod(inp_shape), dtype=tf.float32)
+
+        def loss_fn(y_true, x_decoded_mean):
+            
+            loss = pixel_count * MeanSquaredError()(y_true, x_decoded_mean)
+            return loss
+        
+        return loss_fn
+    
+    else:
+        raise NotImplementedError()
 
 
 def get_data(cfg):
@@ -50,13 +64,29 @@ def get_data(cfg):
         x_test = x_test / 255.
         x_test = np.reshape(x_test, (-1, 28 * 28))
 
-    #elif cfg['dataset']['name']== 'fMNIST':
+    elif cfg['dataset']['name'] == 'CIFAR10':
+        (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+
+        # cifar10 dataset statistics
+        dataset_means = [0.4914, 0.4822, 0.4465]
+        dataset_vars = [np.square(0.247), np.square(0.243), np.square(0.261)]
+
+        normalization_layer = Normalization(mean=dataset_means, variance=dataset_vars)
+
+        x_train = normalization_layer(x_train / 255.)
+        x_test = normalization_layer(x_test / 255.)
+
+        y_train = np.squeeze(y_train)
+        y_test = np.squeeze(y_test)
+    
+    else:
+        raise NotImplementedError()
 
     return x_train, x_test, y_train, y_test
 
 
-def get_model(cfg):
-    return DCGMM(**cfg['model'])
+def get_model(cfg, inp_shape):
+    return DCGMM(cfg['model'], inp_shape)
 
 
 def get_learning_rate_scheduler(cfg):
