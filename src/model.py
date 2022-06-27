@@ -179,7 +179,7 @@ class Decoder(layers.Layer):
     def __init__(self, input_shape, activation):
         super(Decoder, self).__init__(name='dec')
         # convert from tuple to int
-        self.inp_shape = input_shape[0]
+        self.inp_shape = input_shape
         self.dense1 = tfkl.Dense(2000, activation='relu')
         self.dense2 = tfkl.Dense(500, activation='relu')
         self.dense3 = tfkl.Dense(500, activation='relu')

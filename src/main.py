@@ -22,16 +22,32 @@ import utils
 from dataset import DataGenerator
 from projector_plugin import ProjectorPlugin
 
+import torchvision
+import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader, Dataset
+import torch
 
 
-def pretrain(cfg, model, performance_logger):
 
-    x_train, x_test, y_train, y_test = utils.get_data(cfg)
+def pretrain(cfg, model, performance_logger, feature_extractor):
+
+    x_train, x_test, y_train, y_test = utils.get_data(cfg, stl_pretrained=True)
 
     X = np.concatenate((x_train, x_test))
     Y = np.concatenate((y_train, y_test))
 
-    inp_shape = x_train.shape[1:]
+    '''print('extracting image features')
+    data = torch.from_numpy(X)
+    dataloader = DataLoader(TensorDataset(data),batch_size=256,shuffle=False)
+    total_output = []
+    for batch in dataloader:
+        output = feature_extractor(batch[0])
+        total_output.append(output.data)
+    total_output = torch.cat(total_output,dim=0)
+    X = torch.sum(torch.sum(total_output,dim=-1),dim=-1)/9
+    X = X.data.numpy()
+    print('extraction finished')'''
+    inp_shape = X.shape[1]
 
     # Get the AE from DCGMM
     input = tfkl.Input(shape=inp_shape)
@@ -77,7 +93,7 @@ def pretrain(cfg, model, performance_logger):
 
     autoencoder = tfk.Model(inputs=input, outputs=dec)
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=cfg['experiment']['lr_pretrain'])
     if cfg['dataset']['name'] == 'MNIST':
         autoencoder.compile(optimizer=optimizer, loss="binary_crossentropy")
     else:
@@ -94,7 +110,7 @@ def pretrain(cfg, model, performance_logger):
 
         cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=pretrain_path,
                                                          save_weights_only=True, verbose=1)
-        autoencoder.fit(X, X, epochs=cfg['experiment']['epochs_pretrain'], batch_size=64, callbacks=cp_callback)
+        autoencoder.fit(X, X, epochs=cfg['experiment']['epochs_pretrain'], batch_size=128, callbacks=cp_callback)
 
         encoder = model.encoder
         input = tfkl.Input(shape=inp_shape)
@@ -162,7 +178,12 @@ def run_experiment(cfg):
     train_generator = generator.gen()
     test_generator = DataGenerator(x_test, y_test, batch_size=cfg['training']['batch_size']).gen()
 
-    model = utils.get_model(cfg, inp_shape)
+    feature_extractor = utils.get_feature_extractor(inp_shape)
+
+    #feat_size = feature_extractor(x_train[:1]).shape[1]
+    #feat_size = inp_shape[0]
+    feat_size = 2048
+    model = utils.get_model(cfg, feat_size)  # only works with "FC" 
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=cfg['training']['learning_rate'], 
                                          beta_1=cfg['training']['beta_1'],
@@ -181,10 +202,10 @@ def run_experiment(cfg):
                                                               save_weights_only=True, period=100))
 
     # pretrain model
-    model = pretrain(cfg, model, performance_logger)
+    model = pretrain(cfg, model, performance_logger, feature_extractor,x_train, x_test, y_train, y_test)
 
     # train model
-    model.compile(optimizer, loss={"output_1": utils.get_loss_fn(cfg, inp_shape)}, metrics={"output_4": utils.accuracy_metric})
+    model.compile(optimizer, loss={"output_1": utils.get_loss_fn(cfg, feat_size)}, metrics={"output_4": utils.accuracy_metric})
 
     model.fit(train_generator, validation_data=test_generator, steps_per_epoch=int(len(y_train)/cfg['training']['batch_size']), 
               validation_steps=len(y_test)//cfg['training']['batch_size'], epochs=cfg['training']['epochs'], callbacks=callback_list)

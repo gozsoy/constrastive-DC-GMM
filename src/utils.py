@@ -1,3 +1,4 @@
+from statistics import mode
 import matplotlib
 import yaml
 matplotlib.use('Agg')
@@ -12,14 +13,21 @@ from PIL import Image
 from matplotlib import cm
 import tensorflow as tf
 from tensorflow.keras.losses import BinaryCrossentropy, MeanSquaredError
-from tensorflow.keras.layers import Normalization
 import math
+import numpy as np
+from sklearn.model_selection import train_test_split
+import scipy.io as scio
 
 from sklearn.utils.linear_assignment_ import linear_assignment
 import numpy as np
 
 from model import DCGMM
 
+
+import torchvision
+import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader, Dataset
+import torch
 
 def load_config(args):
 
@@ -43,7 +51,8 @@ def get_loss_fn(cfg, inp_shape):
     
     elif cfg['dataset']['name']== 'CIFAR10':
 
-        pixel_count = tf.cast(tf.reduce_prod(inp_shape), dtype=tf.float32)
+        #pixel_count = tf.cast(tf.reduce_prod(inp_shape), dtype=tf.float32)
+        pixel_count = inp_shape
 
         def loss_fn(y_true, x_decoded_mean):
             
@@ -56,7 +65,7 @@ def get_loss_fn(cfg, inp_shape):
         raise NotImplementedError()
 
 
-def get_data(cfg):
+def get_data(cfg, stl_pretrained=False):
     if cfg['dataset']['name'] == 'MNIST':
         (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
         x_train = x_train / 255.
@@ -65,20 +74,74 @@ def get_data(cfg):
         x_test = np.reshape(x_test, (-1, 28 * 28))
 
     elif cfg['dataset']['name'] == 'CIFAR10':
-        (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+        #(x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
 
-        # cifar10 dataset statistics
+        # feature extractor will already handle normalization
+        '''# cifar10 dataset statistics
         dataset_means = [0.4914, 0.4822, 0.4465]
-        dataset_vars = [np.square(0.247), np.square(0.243), np.square(0.261)]
+        dataset_stds = [0.247, 0.243, 0.261]
 
-        normalization_layer = Normalization(mean=dataset_means, variance=dataset_vars)
+        x_train = x_train / 255.
+        x_test = x_test / 255.
 
-        x_train = normalization_layer(x_train / 255.)
-        x_test = normalization_layer(x_test / 255.)
+        # layers.Normalization is not defined in tf 2.2.0
+        for i in range(3):
+            x_train[:,:,:,i] = (x_train[:,:,:,i] - dataset_means[i]) / dataset_stds[i]
+            x_test[:,:,:,i] = (x_test[:,:,:,i] - dataset_means[i]) / dataset_stds[i] 
 
-        y_train = np.squeeze(y_train)
-        y_test = np.squeeze(y_test)
+        '''
+        #y_train = np.squeeze(y_train)
+        #y_test = np.squeeze(y_test)
+
+        X = np.load("../dataset/cifar10/cifar10_features.npy")
+        X = X.astype('float32')
+        y = np.load("../dataset/cifar10/cifar10_label.npy")
+        y = y.astype('int32')
+        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=3)
+
+    elif stl_pretrained:
+        X = np.load("../dataset/stl10/stl_features.npy")
+        X = X.astype('float32')
+        y = np.load("../dataset/stl10/stl_label.npy")
+        y = y.astype('int32')
+        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=3)
     
+    elif cfg['dataset']['name'] == 'STL10':
+
+        path = '../dataset/stl10/stl10_matlab/'
+        data=scio.loadmat(path+'train.mat')
+        x_train = data['X']
+        y_train = data['y'].squeeze()
+        data=scio.loadmat(path+'test.mat')
+        x_test = data['X']
+        y_test = data['y'].squeeze()
+        X = []
+        Y = []
+        X.append(x_train)
+        X.append(x_test)
+        Y.append(y_train)
+        Y.append(y_test)
+        X = np.concatenate(X,axis=0)
+        Y = np.concatenate(Y,axis=0)
+        x_train, x_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=3)
+
+        x_train = np.reshape(x_train,(-1,3,96,96))
+        x_train = np.transpose(x_train,(0,1,3,2))
+        x_train = x_train.astype('float32')/255
+        x_train[:,0,:,:] = (x_train[:,0,:,:] - 0.485)/0.229
+        x_train[:,1,:,:] = (x_train[:,1,:,:] - 0.456)/0.224
+        x_train[:,2,:,:] = (x_train[:,2,:,:] - 0.406)/0.225
+
+        x_test = np.reshape(x_test,(-1,3,96,96))
+        x_test = np.transpose(x_test,(0,1,3,2))
+        x_test = x_test.astype('float32')/255
+        x_test[:,0,:,:] = (x_test[:,0,:,:] - 0.485)/0.229
+        x_test[:,1,:,:] = (x_test[:,1,:,:] - 0.456)/0.224
+        x_test[:,2,:,:] = (x_test[:,2,:,:] - 0.406)/0.225
+
+        y_train = y_train - 1
+        y_test = y_test - 1
+
     else:
         raise NotImplementedError()
 
@@ -87,6 +150,20 @@ def get_data(cfg):
 
 def get_model(cfg, inp_shape):
     return DCGMM(cfg['model'], inp_shape)
+
+
+def get_feature_extractor(inp_shape):
+
+    '''inputs = tf.keras.Input(inp_shape)
+    x = tf.keras.applications.imagenet_utils.preprocess_input(inputs, data_format='channels_last', mode='torch')
+    outputs = tf.keras.applications.ResNet50(include_top=False, weights = 'imagenet', pooling='avg')(x)
+    feature_extractor = tf.keras.Model(inputs=inputs, outputs=outputs)'''
+
+    res50_model = torchvision.models.resnet50(pretrained=True)
+    res50_conv = nn.Sequential(*list(res50_model.children())[:-2])
+    res50_conv.eval()
+
+    return res50_conv
 
 
 def get_learning_rate_scheduler(cfg):

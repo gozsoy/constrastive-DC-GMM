@@ -212,6 +212,7 @@ class DataGenerator():
                 X = tf.gather(self.X,indexes)
                 Y = self.Y[indexes]
                 W = self.W[indexes][:, indexes]* self.alpha
+                print(X.shape,Y.shape)
                 ind1, ind2 = csr_matrix_indices(W)
                 data = W.data
                 yield (X, (ind1, ind2, data)), {"output_1": X, "output_4": Y}
