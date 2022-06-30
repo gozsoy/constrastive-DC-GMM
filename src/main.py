@@ -19,34 +19,26 @@ from sklearn.metrics.cluster import adjusted_rand_score
 from ast import literal_eval as make_tuple
 
 import utils
-from dataset import DataGenerator
+from dataset import ContrastiveDataGenerator
 from projector_plugin import ProjectorPlugin
 
-import torchvision
-import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader, Dataset
-import torch
 
 
+def pretrain(cfg, model, performance_logger, feature_extractor, x_train, x_test, y_train, y_test):
 
-def pretrain(cfg, model, performance_logger, feature_extractor):
-
-    x_train, x_test, y_train, y_test = utils.get_data(cfg, stl_pretrained=True)
+    #x_train, x_test, y_train, y_test = utils.get_data(cfg, stl_pretrained=False)
 
     X = np.concatenate((x_train, x_test))
     Y = np.concatenate((y_train, y_test))
 
-    '''print('extracting image features')
-    data = torch.from_numpy(X)
-    dataloader = DataLoader(TensorDataset(data),batch_size=256,shuffle=False)
+    print('extracting image features')
+    dataloader = tf.data.Dataset.from_tensor_slices(X).batch(128)
     total_output = []
     for batch in dataloader:
-        output = feature_extractor(batch[0])
-        total_output.append(output.data)
-    total_output = torch.cat(total_output,dim=0)
-    X = torch.sum(torch.sum(total_output,dim=-1),dim=-1)/9
-    X = X.data.numpy()
-    print('extraction finished')'''
+        output = feature_extractor(batch, training=False)
+        total_output.append(output)
+    X = tf.concat(total_output,axis=0)
+    print('extraction finished')
     inp_shape = X.shape[1]
 
     # Get the AE from DCGMM
@@ -152,6 +144,7 @@ def pretrain(cfg, model, performance_logger, feature_extractor):
     return model
 
 
+
 def run_experiment(cfg):
     
     if cfg['experiment']['name'] is None:
@@ -173,13 +166,16 @@ def run_experiment(cfg):
     x_train, x_test, y_train, y_test = utils.get_data(cfg)
     inp_shape = x_train.shape[1:]
 
-    generator = DataGenerator(x_train, y_train, num_constrains=cfg['training']['num_constrains'], alpha=alpha, q=cfg['training']['q'],
-                        batch_size=cfg['training']['batch_size'], ml=cfg['training']['ml'])
-    train_generator = generator.gen()
-    test_generator = DataGenerator(x_test, y_test, batch_size=cfg['training']['batch_size']).gen()
-
     feature_extractor = utils.get_feature_extractor(inp_shape)
 
+    generator = ContrastiveDataGenerator(x_train, y_train, alpha=alpha,
+                                         batch_size=cfg['training']['batch_size'], 
+                                         feature_extractor=feature_extractor)
+    train_generator = generator.gen()
+
+    #test_generator = DataGenerator(x_test, y_test, batch_size=cfg['training']['batch_size'], feature_extractor=feature_extractor).gen()
+
+    
     #feat_size = feature_extractor(x_train[:1]).shape[1]
     #feat_size = inp_shape[0]
     feat_size = 2048
@@ -202,17 +198,25 @@ def run_experiment(cfg):
                                                               save_weights_only=True, period=100))
 
     # pretrain model
-    model = pretrain(cfg, model, performance_logger, feature_extractor,x_train, x_test, y_train, y_test)
-
+    model = pretrain(cfg, model, performance_logger, feature_extractor, x_train, x_test, y_train, y_test)
+    
     # train model
     model.compile(optimizer, loss={"output_1": utils.get_loss_fn(cfg, feat_size)}, metrics={"output_4": utils.accuracy_metric})
 
-    model.fit(train_generator, validation_data=test_generator, steps_per_epoch=int(len(y_train)/cfg['training']['batch_size']), 
-              validation_steps=len(y_test)//cfg['training']['batch_size'], epochs=cfg['training']['epochs'], callbacks=callback_list)
+    # TODO: NO VALIDATION RIGHT NOW
+    model.fit(train_generator, steps_per_epoch=int(len(y_train)/cfg['training']['batch_size']), 
+             epochs=cfg['training']['epochs'], callbacks=callback_list)
 
-
+    
     # measure training performance
-    rec, z_sample, p_z_c, p_c_z = model.predict([x_train, np.zeros(len(x_train))])
+    dataloader = tf.data.Dataset.from_tensor_slices(x_train).batch(128)
+    total_output = []
+    for batch in dataloader:
+        output = feature_extractor(batch, training=False)
+        total_output.append(output)
+    x_train_extracted = tf.concat(total_output,axis=0)
+
+    rec, z_sample, p_z_c, p_c_z = model.predict([x_train_extracted, np.zeros(len(x_train_extracted))])
     yy = np.argmax(p_c_z, axis=-1)
     acc = utils.cluster_acc(y_train, yy)
     nmi = normalized_mutual_info_score(y_train, yy)
@@ -238,7 +242,14 @@ def run_experiment(cfg):
 
 
     # measure test performance
-    rec, z_sample, p_z_c, p_c_z = model.predict([x_test, np.zeros(len(x_test))])
+    dataloader = tf.data.Dataset.from_tensor_slices(x_test).batch(128)
+    total_output = []
+    for batch in dataloader:
+        output = feature_extractor(batch, training=False)
+        total_output.append(output)
+    x_test_extracted = tf.concat(total_output,axis=0)
+
+    rec, z_sample, p_z_c, p_c_z = model.predict([x_test_extracted, np.zeros(len(x_test_extracted))])
     yy = np.argmax(p_c_z, axis=-1)
     acc = utils.cluster_acc(y_test, yy)
     nmi = normalized_mutual_info_score(y_test, yy)

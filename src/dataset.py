@@ -3,6 +3,7 @@ import tensorflow as tf
 import random
 from scipy.sparse import csr_matrix
 import scipy.sparse
+import itertools
 
 
 def csr_matrix_indices(S):
@@ -20,7 +21,7 @@ def csr_matrix_indices(S):
 class DataGenerator():
     'Generates data for Keras'
 
-    def __init__(self, X, Y, alpha=1000, batch_size=100, num_constrains=0, q=0, ml=0, shuffle=True, l=0):
+    def __init__(self, X, Y, alpha=1000, batch_size=100, num_constrains=0, q=0, ml=0, shuffle=True, l=0, feature_extractor=None):
         'Initialization'
         self.batch_size = batch_size
         self.alpha = alpha
@@ -39,6 +40,7 @@ class DataGenerator():
         self.indexes = np.arange(len(self.Y))
         self.ind_constr = np.arange(self.num_constrains)
         self.shuffle = shuffle
+        self.feature_extractor = feature_extractor
 
     def transitive_closure(self, ml_ind1, ml_ind2, cl_ind1, cl_ind2, n):
         """
@@ -199,6 +201,25 @@ class DataGenerator():
         W = W.tanh().rint()
         return W, ml_ind1, ml_ind2, cl_ind1, cl_ind2
 
+
+    def extract_image_features(self, batch_imgs):
+        
+        #device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+        '''batch_imgs = torch.from_numpy(batch_imgs.numpy())#.to(device)
+        output = self.feature_extractor(batch_imgs)
+        X = torch.sum(torch.sum(output,dim=-1),dim=-1)/9 # stl specific
+
+        #if torch.cuda.is_available():
+        #    X = X.data.cpu().numpy()
+        #else:
+        X = X.data.numpy()'''
+
+        X = self.feature_extractor(batch_imgs, training=False)
+
+        return X
+
+
     def __len__(self):
         'Denotes the number of batches per epoch'
         return int(np.floor(len(self.X) / self.batch_size))
@@ -207,23 +228,133 @@ class DataGenerator():
         while True:
             np.random.shuffle(self.indexes)
             np.random.shuffle(self.ind_constr)
-            for index in range(int(len(self.X)/ self.batch_size)):
+            '''for index in range(int(len(self.X)/ self.batch_size)):
                 indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
                 X = tf.gather(self.X,indexes)
+                X = self.extract_image_features(X) # added for stl10
                 Y = self.Y[indexes]
                 W = self.W[indexes][:, indexes]* self.alpha
-                print(X.shape,Y.shape)
                 ind1, ind2 = csr_matrix_indices(W)
                 data = W.data
-                yield (X, (ind1, ind2, data)), {"output_1": X, "output_4": Y}
+                
+                yield (X, (ind1, ind2, data)), {"output_1": X, "output_4": Y}'''
             for index in range(self.num_constrains// self.batch_size):
                 indexes = self.ind_constr[index * self.batch_size//2:(index + 1) * self.batch_size//2]
                 indexes = np.concatenate([self.ind1[indexes], self.ind2[indexes]])
+
                 np.random.shuffle(indexes)
                 X = tf.gather(self.X,indexes)
+                X = self.extract_image_features(X) # added for stl10
                 Y = self.Y[indexes]
                 W = self.W[indexes][:, indexes]* self.alpha
                 ind1, ind2 = csr_matrix_indices(W)
                 data = W.data
                 #W = W.toarray()
                 yield (X, (ind1,ind2, data)), {"output_1": X, "output_4": Y}
+
+
+class ContrastiveDataGenerator():
+    'Generates data within contrastive learning schema for DC-GMM'
+
+    def __init__(self, X, Y, alpha=1000, batch_size=100, feature_extractor=None):
+        'Initialization'
+        self.batch_size = batch_size
+        self.alpha = alpha
+        self.X = X
+        self.Y = Y
+        self.indexes = np.arange(len(self.Y))
+        self.feature_extractor = feature_extractor
+        
+        self.ind1, self.ind2, self.data = self.get_batch_W()
+
+        self.transformation1 = self.get_transformation_pipeline()
+        self.transformation2 = self.get_transformation_pipeline()
+
+    def extract_image_features(self, batch_imgs):
+
+        X = self.feature_extractor(batch_imgs, training=False)
+
+        return X
+
+    def get_transformation_pipeline(self):
+        
+        transformation = tf.keras.Sequential([   
+                tf.keras.layers.experimental.preprocessing.RandomCrop(height=48, width=72),
+                tf.keras.layers.experimental.preprocessing.Resizing(height=96, width=96),
+                tf.keras.layers.experimental.preprocessing.RandomFlip(mode='horizontal'),
+                tf.keras.layers.experimental.preprocessing.RandomContrast(factor=0.1)
+            ])
+
+        return transformation
+
+
+    def get_batch_W(self):
+
+        all_pairs = list(itertools.product(range(self.batch_size), range(self.batch_size)))
+
+        ind1 = []
+        ind2 = []
+        data = []
+
+        def create_pair_relation(pair):
+            el1 = pair[0]
+            el2 = pair[1]
+
+            if el1 == el2:
+                ind1.append(el1)
+                ind2.append(el2+self.batch_size)
+                data.append(1.)
+
+                ind1.append(el2+self.batch_size)
+                ind2.append(el1)
+                data.append(1.)
+            
+            else:
+                ind1.append(el1)
+                ind2.append(el2)
+                data.append(-1.)
+
+                ind1.append(el1)
+                ind2.append(el2+self.batch_size)
+                data.append(-1.)
+
+                ind1.append(el2+self.batch_size)
+                ind2.append(el1)
+                data.append(-1.)
+
+                # do not forget to add
+                # el1+batch_size, el2+batch_size
+
+            return
+
+        _ = list(map(create_pair_relation,all_pairs))
+
+        ind1 = np.array(ind1, dtype=np.int32)
+        ind2 = np.array(ind2, dtype=np.int32)
+        data = np.array(data) * self.alpha
+
+        return ind1, ind2, data
+
+
+    def __len__(self):
+        'Denotes the number of batches per epoch'
+        return int(np.floor(len(self.X) / self.batch_size))
+    
+    def gen(self):
+        while True:
+            np.random.shuffle(self.indexes)
+            for index in range(int(len(self.X)/ self.batch_size)):
+                indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
+
+                X = tf.gather(self.X,indexes)
+
+                # TODO: test data will not have below
+                X_aug1 = self.transformation1(X, training=True)
+                X_aug2 = self.transformation2(X, training=True)
+                X = tf.concat((X_aug1, X_aug2),axis=0)
+
+
+                X = self.extract_image_features(X) # (N,96,96,3) -> (N,2048)
+                Y = tf.concat((self.Y[indexes],self.Y[indexes]),axis=0)
+                
+                yield (X, (self.ind1, self.ind2, self.data)), {"output_1": X, "output_4": Y}

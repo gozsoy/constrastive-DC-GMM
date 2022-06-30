@@ -49,7 +49,7 @@ def get_loss_fn(cfg, inp_shape):
         
         return loss_fn
     
-    elif cfg['dataset']['name']== 'CIFAR10':
+    elif cfg['dataset']['name']== 'CIFAR10' or cfg['dataset']['name']== 'STL10':
 
         #pixel_count = tf.cast(tf.reduce_prod(inp_shape), dtype=tf.float32)
         pixel_count = inp_shape
@@ -127,17 +127,21 @@ def get_data(cfg, stl_pretrained=False):
 
         x_train = np.reshape(x_train,(-1,3,96,96))
         x_train = np.transpose(x_train,(0,1,3,2))
-        x_train = x_train.astype('float32')/255
+        x_train = np.transpose(x_train,(0,2,3,1))
+        
+        '''x_train = x_train.astype('float32')/255
         x_train[:,0,:,:] = (x_train[:,0,:,:] - 0.485)/0.229
         x_train[:,1,:,:] = (x_train[:,1,:,:] - 0.456)/0.224
-        x_train[:,2,:,:] = (x_train[:,2,:,:] - 0.406)/0.225
+        x_train[:,2,:,:] = (x_train[:,2,:,:] - 0.406)/0.225'''
 
         x_test = np.reshape(x_test,(-1,3,96,96))
         x_test = np.transpose(x_test,(0,1,3,2))
-        x_test = x_test.astype('float32')/255
+        x_test = np.transpose(x_test,(0,2,3,1))
+        
+        '''x_test = x_test.astype('float32')/255
         x_test[:,0,:,:] = (x_test[:,0,:,:] - 0.485)/0.229
         x_test[:,1,:,:] = (x_test[:,1,:,:] - 0.456)/0.224
-        x_test[:,2,:,:] = (x_test[:,2,:,:] - 0.406)/0.225
+        x_test[:,2,:,:] = (x_test[:,2,:,:] - 0.406)/0.225'''
 
         y_train = y_train - 1
         y_test = y_test - 1
@@ -154,16 +158,20 @@ def get_model(cfg, inp_shape):
 
 def get_feature_extractor(inp_shape):
 
-    '''inputs = tf.keras.Input(inp_shape)
-    x = tf.keras.applications.imagenet_utils.preprocess_input(inputs, data_format='channels_last', mode='torch')
-    outputs = tf.keras.applications.ResNet50(include_top=False, weights = 'imagenet', pooling='avg')(x)
-    feature_extractor = tf.keras.Model(inputs=inputs, outputs=outputs)'''
+    inputs = tf.keras.layers.Input(inp_shape, dtype = tf.uint8)
+    x = tf.cast(inputs, tf.float32)
+    x = tf.keras.applications.resnet.preprocess_input(x)
+    outputs = tf.keras.applications.ResNet50(include_top=False, weights='imagenet', pooling='avg')(x)
+    feature_extractor = tf.keras.Model(inputs=inputs, outputs=outputs)
+    
+    '''device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    #print(f'resnet is on device: {device}')
 
     res50_model = torchvision.models.resnet50(pretrained=True)
     res50_conv = nn.Sequential(*list(res50_model.children())[:-2])
     res50_conv.eval()
-
-    return res50_conv
+    res50_conv = res50_conv#.to(device)'''
+    return feature_extractor
 
 
 def get_learning_rate_scheduler(cfg):
